@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Vendor {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  sessions     Session[]
+  createdAt    BigInt
+  updatedAt    BigInt
+}
+
+model Customer {
+  id             String           @id @default(cuid())
+  phone          String           @unique // E.164 format
+  name           String?
+  currentBalance Int              @default(0)
+  totalCollected Int              @default(0)
+  privateNotes   String?
+  
+  archivedAt     BigInt?
+  archivedBy     String?
+  archiveReason  String?
+
+  devices        Device[]
+  sessions       Session[]
+  timelineEvents TimelineEvent[]
+  ledgerEntries  LedgerEntry[]
+  purchases      Purchase[]
+  payments       Payment[]
+  chatMessages   ChatMessage[]
+
+  createdAt      BigInt
+  updatedAt      BigInt
+}
+
+model DeviceApprovalRequest {
+  id             String   @id @default(cuid())
+  phone          String
+  deviceId       String
+  fingerprint    String?
+  browser        String?
+  os             String?
+  ip             String?
+  status         String   // PENDING, APPROVED, REJECTED, BLOCKED
+  requestedAt    BigInt
+  expiresAt      BigInt
+}
+
+model Device {
+  id             String    @id // UUID v7 or CUID2 provided by client/server
+  customerId     String
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  fingerprint    String?
+  sessions       Session[]
+  createdAt      BigInt
+  updatedAt      BigInt
+}
+
+model Session {
+  id           String    @id @default(cuid())
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  vendorId     String?
+  vendor       Vendor?   @relation(fields: [vendorId], references: [id])
+  deviceId     String?
+  device       Device?   @relation(fields: [deviceId], references: [id])
+  ip           String?
+  userAgent    String?
+  rememberMe   Boolean   @default(false)
+  expiresAt    BigInt
+  idleTimeout  BigInt?
+  lastSeen     BigInt
+  createdAt    BigInt
+}
+
+model TimelineEvent {
+  id             String          @id @default(cuid())
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  sequenceNumber Int
+  entityType     String          // PURCHASE, PAYMENT, CORRECTION, SYSTEM
+  entityId       String          // Polymorphic reference ID
+  receipt        TimelineReceipt?
+  createdAt      BigInt
+  
+  @@unique([customerId, sequenceNumber])
+}
+
+model TimelineReceipt {
+  eventId      String        @id
+  event        TimelineEvent @relation(fields: [eventId], references: [id])
+  delivered    BigInt?
+  customerSeen BigInt?
+  vendorSeen   BigInt?
+}
+
+model Purchase {
+  id                 String               @id @default(cuid())
+  customerId         String
+  customer           Customer             @relation(fields: [customerId], references: [id])
+  amount             Int
+  clearedAmount      Int                  @default(0)
+  status             String               // PENDING, UNPAID, PARTIALLY_PAID, PAID, CORRECTED
+  paymentAllocations PaymentAllocation[]
+  corrections        Correction[]
+  createdAt          BigInt
+  updatedAt          BigInt               @default(0)
+}
+
+model Payment {
+  id              String               @id @default(cuid())
+  customerId      String
+  customer        Customer             @relation(fields: [customerId], references: [id])
+  amount          Int
+  unallocatedAmount Int                @default(0)
+  status          String               @default("UNALLOCATED")
+  referenceNumber String?
+  notes           String?
+  recordedBy      String?
+  paymentDate     BigInt
+  allocations     PaymentAllocation[]
+  createdAt       BigInt
+  updatedAt       BigInt               @default(0)
+}
+
+model PaymentAllocation {
+  id              String   @id @default(cuid())
+  paymentId       String
+  payment         Payment  @relation(fields: [paymentId], references: [id])
+  purchaseId      String
+  purchase        Purchase @relation(fields: [purchaseId], references: [id])
+  allocatedAmount Int
+  createdAt       BigInt
+}
+
+model Correction {
+  id                 String   @id @default(cuid())
+  customerId         String
+  correctsPurchaseId String
+  purchase           Purchase @relation(fields: [correctsPurchaseId], references: [id])
+  amount             Int
+  reason             String?
+  createdAt          BigInt
+}
+
+model LedgerEntry {
+  id             String   @id @default(cuid())
+  customerId     String
+  customer       Customer @relation(fields: [customerId], references: [id])
+  referenceType  String   // PURCHASE, PAYMENT, CORRECTION
+  referenceId    String
+  type           String   // DEBIT, CREDIT
+  amount         Int
+  createdAt      BigInt
+}
+
+model SystemMessage {
+  id        String @id @default(cuid())
+  eventId   String // Manually join if needed since polymorphic
+  text      String
+  createdAt BigInt
+}
+
+model Notification {
+  id        String  @id @default(cuid())
+  type      String  // NEW_DEVICE, NEW_PURCHASE, PAYMENT_RECORDED, CORRECTION, ARCHIVED_CUSTOMER
+  title     String
+  message   String
+  read      Boolean @default(false)
+  createdAt BigInt
+}
+
+model DailySummary {
+  id              String @id @default(cuid())
+  date            String @unique // YYYY-MM-DD
+  totalPurchases  Int    @default(0)
+  totalPayments   Int    @default(0)
+  totalCorrections Int   @default(0)
+  updatedAt       BigInt
+}
+
+model MonthlySummary {
+  id              String @id @default(cuid())
+  month           String @unique // YYYY-MM
+  totalPurchases  Int    @default(0)
+  totalPayments   Int    @default(0)
+  totalCorrections Int   @default(0)
+  updatedAt       BigInt
+}
+
+model YearlySummary {
+  id              String @id @default(cuid())
+  year            String @unique // YYYY
+  totalPurchases  Int    @default(0)
+  totalPayments   Int    @default(0)
+  totalCorrections Int   @default(0)
+  updatedAt       BigInt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  requestId  String?  // UUID tying multiple logs to an HTTP request
+  action     String
+  entityType String
+  entityId   String
+  actorId    String?
+  details    String?  // JSON stringified
+  createdAt  BigInt
+}
+
+model ChatMessage {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  sender     String   // VENDOR
+  text       String
+  read       Boolean  @default(false)
+  createdAt  BigInt
+}
